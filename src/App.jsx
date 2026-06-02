@@ -52,8 +52,6 @@ function App() {
   const [isDeckSelectModalOpen, setIsDeckSelectModalOpen] = useState(false); 
   const [isTrashModalOpen, setIsTrashModalOpen] = useState(false);
   const [inspectingUnitIndex, setInspectingUnitIndex] = useState(null); 
-  
-  // 상대방 카드 서치 돋보기용 상태
   const [magnifiedCard, setMagnifiedCard] = useState(null);
 
   const [draggingCard, setDraggingCard] = useState(null);
@@ -66,7 +64,6 @@ function App() {
     if (localDecks) setSavedDecks(JSON.parse(localDecks));
   }, []);
 
-  // 1. 닉네임 구속형 클라우드 덱 로더
   const fetchCloudDecks = async (targetUser) => {
     try {
       const { data, error } = await supabase
@@ -85,11 +82,10 @@ function App() {
         setSavedDecks(formattedDecks);
       }
     } catch (err) {
-      console.log("클라우드 장부 불러오기 대기 중:", err.message);
+      console.log("클라우드 장부 대기 중:", err.message);
     }
   };
 
-  // [수정사항 1 반영]: 튕기던 오류 소탕하고 확실하게 수파베이스에 밀어넣는 덱 저장 함수
   const handleSaveDeck = async () => {
     if (deckCards.length !== 40) return alert('덱은 반드시 40장이 채워져야 저장할 수 있습니다!');
     if (!selectedLeader) return alert('리더 카드를 선택해야 덱을 저장할 수 있습니다!');
@@ -97,7 +93,6 @@ function App() {
     const nameToSave = newDeckName.trim() || `${selectedLeader.name} 덱`;
     
     try {
-      // 서버 장부 컬럼 구조에 정확하게 매칭하고 고유키 충돌 방지 가드 처리
       const { error } = await supabase
         .from('saved_decks')
         .insert([
@@ -110,7 +105,7 @@ function App() {
 
       if (error) throw error;
 
-      alert(`📥 [${nameToSave}]이 클라우드 서버에 안전하게 등록되었습니다! 이제 어디서든 [${userId}] 닉네임만 치면 즉시 로드됩니다.`);
+      alert(`📥 [${nameToSave}]이 클라우드 서버에 등록되었습니다! [${userId}] 계정으로 어디서든 로드됩니다.`);
       setNewDeckName('');
       fetchCloudDecks(userId); 
     } catch (err) {
@@ -146,7 +141,7 @@ function App() {
       .on('broadcast', { event: 'JOIN' }, (payload) => {
         setIsOpponentConnected(true);
         setOppUserId(payload.payload.userId);
-        alert(`🎮 플레이어 [${payload.payload.userId}]님이 입장했습니다! 클라우드 전장이 가동됩니다.`);
+        alert(`🎮 플레이어 [${payload.payload.userId}]님이 입장했습니다! 클라우드 전장 연동 완료.`);
         
         channel.send({
           type: 'broadcast',
@@ -170,7 +165,6 @@ function App() {
         if (oppState.deckCount !== undefined) setOppDeckCount(oppState.deckCount);
         
         if (oppState.unitZoneSlots !== undefined) {
-          // 거울형 레인 시스템: 상대가 보낸 배열을 내 시점에서 마주보게 우측 반전 처리!
           setOppUnitZoneSlots([...oppState.unitZoneSlots].reverse()); 
         }
       })
@@ -279,14 +273,12 @@ function App() {
     setDraggingCard(card);
   };
 
-  // [수정사항 2 반영]: 동일 카드 이름이 3장 존재할 경우 빌딩을 완전 차단하는 규칙 엔진 가드
   const onMainDeckDrop = (e) => {
     e.preventDefault();
     if (!draggingCard) return;
     if (draggingCard.type === 'Leader') return alert('리더 카드는 아래 [리더 드롭 존]으로 장착해 주세요!');
     if (deckCards.length >= 40) return alert('🚨 메인 덱은 이미 최대 수량인 40장입니다!');
     
-    // 내 덱에 들어있는 카드 중 같은 이름의 개수 연산
     const sameCardCount = deckCards.filter(c => c.name === draggingCard.name).length;
     if (sameCardCount >= 3) {
       return alert(`🚨 규칙 위반: 니벨아레나 TCG 룰 상 동일한 카드는 덱에 최대 3장까지만 투입할 수 있습니다! ([${draggingCard.name}] 현재 3장 존재)`);
@@ -362,6 +354,14 @@ function App() {
     setDraggingCard(null);
   };
 
+  // [수정사항 2 반영]: 스킬 카드 공중분해 버그 격파! 클릭 시 무덤(Trash)으로 촤르륵 이동 연산
+  const handleMoveSkillsToTrash = () => {
+    if (skillZoneCards.length === 0) return;
+    setTrashDeck([...trashDeck, ...skillZoneCards]); // 기존 무덤 뒤에 스킬 리스트 포개기
+    setSkillZoneCards([]); // 내 필드 스킬 구역 포맷
+    alert('🧹 엔드페이즈: 내 필드의 모든 스킬 카드가 무덤(Trash)으로 수거되었습니다.');
+  };
+
   const handlePopDamageStack = (e) => {
     e.stopPropagation(); 
     if (damageStack.length === 0) return;
@@ -393,7 +393,7 @@ function App() {
           
           <div className="flex flex-col space-y-4 max-w-md mx-auto pt-2 border-t border-zinc-800">
             <div className="flex flex-col space-y-2">
-              <span className="text-base font-black text-zinc-400 text-center">서버 코드</span>
+              <span className="text-base font-black text-zinc-400 text-center">배틀 룸 주파수 코드</span>
               <input type="text" placeholder="코드 (3자리 숫자)" value={roomCode} onChange={(e) => handleCodeChange(e.target.value)} className="w-full px-4 py-3.5 border-2 border-zinc-700 bg-zinc-950 text-white rounded-xl text-center font-black text-xl focus:outline-none tracking-widest" />
             </div>
             <button onClick={handleEnterDeckScreen} className="w-full py-4 bg-zinc-800 hover:bg-zinc-700 border-2 border-zinc-600 text-white font-black text-lg rounded-xl tracking-wide transition-all active:scale-[0.98] shadow-md mt-2">
@@ -526,11 +526,11 @@ function App() {
     );
   }
 
-  // 3. 인게임 화면 (컴팩트 뷰어 + 레벨 스택 엔진)
+  // 3. 인게임 화면
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 p-4 flex flex-col items-center justify-start select-none font-sans overflow-y-auto pb-12">
       
-      {/* 상단 배너 */}
+      {/* 상단 와이드 대시 대형 제어 배너 */}
       <div className="w-full max-w-[1700px] sticky top-0 z-40 bg-zinc-900/95 border-b-4 border-zinc-800 p-3 flex justify-between items-center shadow-2xl backdrop-blur-md">
         <div className="flex items-center gap-6">
           <div className="bg-zinc-950 border border-cyan-500/30 px-4 py-1.5 rounded-xl text-center shadow-inner">
@@ -546,14 +546,19 @@ function App() {
         <div className="flex gap-2">
           <button onClick={() => setLeaderLevel(Math.min(10, leaderLevel + 1))} className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 font-black text-xs rounded-md transition-colors">🔼 레벨업 (+1)</button>
           <button onClick={() => setIsLeaderFlipped(!isLeaderFlipped)} className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 font-black text-xs text-amber-400 rounded-md">🔃 리더 전환 (Flip)</button>
-          <button onClick={() => setSkillZoneCards([])} className="px-3 py-1.5 bg-purple-900/40 border border-purple-500/30 text-white font-black text-xs rounded-md">🧹 내 스킬 제거</button>
+          
+          {/* [수정사항 2 반영]: 그냥 날리던 함수에서 handleMoveSkillsToTrash로 전면 이적 배선 완료! */}
+          <button onClick={handleMoveSkillsToTrash} className="px-3 py-1.5 bg-purple-900/60 border border-purple-500/40 text-white font-black text-xs rounded-md shadow transition-colors hover:bg-purple-800">🧹 내 스킬 제거 (무덤이송)</button>
+          
           <button onClick={handleExitGame} className="px-3 py-1.5 bg-red-700 hover:bg-red-600 border border-red-500 text-red-100 font-black text-xs rounded-md shadow">🛑 대기방 복귀</button>
         </div>
       </div>
 
       <div className="w-full max-w-[1700px] flex flex-col gap-6 mt-4 px-4">
         
-        {/* [상대방 플레이 매트] */}
+        {/* ====================================================
+            [상대방 플레이 매트]
+            ==================================================== */}
         <div className="w-full bg-zinc-900 border-[6px] border-red-900/40 rounded-[28px] p-4 shadow-xl grid grid-cols-12 gap-4 relative">
           <div className="absolute -top-3 left-8 bg-red-600 text-white text-[10px] font-black px-4 py-0.5 rounded-full shadow-lg border border-red-400 z-10">🚨 OPPONENT MAT ({oppUserId})</div>
           
@@ -577,7 +582,7 @@ function App() {
             </div>
           </div>
 
-          {/* 상대 유닛 존 (확대경 장비 정찰 타겟 링크 활성화) */}
+          {/* 상대 유닛 존 */}
           <div className="col-span-5 border-2 border-zinc-800 bg-zinc-950/10 rounded-xl p-3 relative grid grid-cols-3 gap-3 items-stretch min-h-[190px]">
             {oppUnitZoneSlots.map((card, idx) => (
               <div key={idx} onClick={() => { if(card) setMagnifiedCard(card); }} className={`border-2 rounded-xl relative flex items-center justify-center p-0.5 transition-all overflow-hidden aspect-[1/1.4] m-auto w-full max-w-[120px] shadow-lg cursor-pointer ${card ? 'bg-zinc-950 border-red-500/60' : 'border-dashed border-zinc-800 bg-zinc-950/40 text-zinc-800 font-black text-xs'}`}>
@@ -594,7 +599,7 @@ function App() {
             ))}
           </div>
 
-          {/* 상대 대미지 존 & 상대 스킬 존 */}
+          {/* 상대 대미지 존 & [수정사항 3 반영]: 상대 스킬 존 명확한 외곽 프레임 시각화 */}
           <div className="col-span-4 grid grid-rows-2 gap-2">
             <div onClick={() => { if(oppDamageStack.length > 0) setMagnifiedCard(oppDamageStack[oppDamageStack.length - 1]); }} className="border border-zinc-800 bg-zinc-950/20 rounded-xl p-1.5 flex items-center justify-start pl-4 relative cursor-pointer min-h-[85px]">
               <span className="absolute top-1 right-2 text-[8px] font-black text-red-500">대미지 스택 ({oppDamageStack.length})</span>
@@ -606,10 +611,13 @@ function App() {
                 </div>
               )}
             </div>
-            <div className="border border-zinc-800 bg-zinc-950/20 rounded-xl p-1.5 flex gap-2 overflow-x-auto items-center min-h-[85px]">
-              {oppSkillZoneCards.length === 0 && <span className="text-zinc-700 text-[9px] font-bold m-auto">활성 스킬 없음</span>}
+
+            {/* [수정사항 3]: 상대방 스킬 전개 상태의 시각화를 위해 정규 액자 프레임 고도화 보강 */}
+            <div className="border-2 border-purple-900/60 bg-purple-950/10 rounded-xl p-1.5 flex gap-2 overflow-x-auto items-center min-h-[85px] relative">
+              <span className="absolute top-1 left-2 text-[8px] font-black text-purple-400 tracking-wide">적 활성 스킬 전개 구역 ({oppSkillZoneCards.length})</span>
+              {oppSkillZoneCards.length === 0 && <span className="text-zinc-800 text-[9px] font-black m-auto py-4">활성화된 상대 스킬 없음</span>}
               {oppSkillZoneCards.map((card, i) => (
-                <div key={i} onClick={() => setMagnifiedCard(card)} className="aspect-[1/1.4] h-[65px] border border-purple-500 rounded-md overflow-hidden bg-black flex-shrink-0 cursor-pointer shadow"><img src={card.imgUrl} className="w-full h-full object-cover" alt="" /></div>
+                <div key={i} onClick={() => setMagnifiedCard(card)} className="aspect-[1/1.4] h-[55px] border border-purple-500 rounded-md overflow-hidden bg-black flex-shrink-0 cursor-pointer shadow mt-2"><img src={card.imgUrl} className="w-full h-full object-cover" alt="" /></div>
               ))}
             </div>
           </div>
@@ -621,7 +629,7 @@ function App() {
         <div className="w-full bg-zinc-900 border-[6px] border-cyan-900/40 rounded-[28px] p-4 shadow-xl grid grid-cols-12 gap-4 relative">
           <div className="absolute -top-3 left-8 bg-cyan-600 text-white text-[10px] font-black px-4 py-0.5 rounded-full shadow-lg border border-cyan-400 z-10">🔵 MY PLAY MAT</div>
 
-          {/* ① 내 레벨 존 */}
+          {/* 내 레벨 존 */}
           <div className="col-span-3 border-2 border-zinc-800 bg-zinc-950/40 rounded-xl p-3 flex flex-col justify-center relative shadow-inner min-h-[190px]">
             <span className="absolute top-1 left-2 text-[9px] font-black text-cyan-400">내 리더 레벨 트랙 (LV {leaderLevel})</span>
             <div className="w-full h-full flex items-center justify-start pl-4 relative overflow-visible mt-2">
@@ -644,7 +652,7 @@ function App() {
             </div>
           </div>
 
-          {/* ③ 내 유닛 존 */}
+          {/* 내 유닛 존 */}
           <div className="col-span-5 border-4 border-zinc-800 bg-zinc-950/20 rounded-2xl p-3 relative grid grid-cols-3 gap-3 items-stretch min-h-[190px]">
             {unitZoneSlots.map((card, idx) => (
               <div key={idx} onDragOver={(e) => e.preventDefault()} onDrop={(e) => onUnitSlotDrop(e, idx)} className={`border-4 rounded-2xl relative flex flex-col items-center justify-center p-0.5 transition-all overflow-hidden aspect-[1/1.4] m-auto w-full max-w-[120px] shadow-xl ${card ? 'bg-zinc-950 border-cyan-600/80 shadow-cyan-900/40' : 'border-dashed border-zinc-800 bg-zinc-950/40 text-zinc-700 font-black text-xs'}`}>
@@ -661,10 +669,10 @@ function App() {
             ))}
           </div>
 
-          {/* ② 내 대미지 존 & ④ 내 스킬 존 */}
+          {/* 내 대미지 존 & [수정사항 3 반영]: 내 스킬 카드 존 표준 규격 프레임 시각화 */}
           <div className="col-span-4 grid grid-rows-2 gap-2">
             <div onDragOver={(e) => e.preventDefault()} onDrop={onDamageStackDrop} onDoubleClick={handlePopDamageStack} className="border-4 border-zinc-800 bg-zinc-950/30 rounded-2xl p-2 flex flex-col justify-center relative shadow-inner overflow-visible min-h-[85px]">
-              <span className="absolute -top-2.5 left-3 bg-rose-700 text-white text-[8px] font-black px-1.5 py-0.2 rounded shadow">② 내 대미지 *(더블클릭 무덤행)*</span>
+              <span className="absolute -top-2.5 left-3 bg-rose-700 text-white text-[8px] font-black px-1.5 py-0.2 rounded shadow">내 대미지 존 *(더블클릭 무덤행)*</span>
               <div className="w-full h-full flex items-center justify-start pl-4 relative overflow-visible">
                 {damageStack.length === 0 ? <span className="text-zinc-600 text-[10px] font-black mx-auto">누적 대미지 없음</span> : (
                   <div className="relative w-full h-full flex items-center overflow-visible">
@@ -676,10 +684,13 @@ function App() {
               </div>
             </div>
 
-            <div onDragOver={(e) => e.preventDefault()} onDrop={onSkillZoneDrop} className="border-4 border-zinc-800 bg-zinc-950/20 rounded-2xl p-2 flex flex-col items-center justify-center relative min-h-[85px]">
-              <div className="w-full flex-1 overflow-y-auto grid grid-cols-4 gap-1 p-0.5 max-h-[70px]">
+            {/* [수정사항 3]: 내 스킬 카드 존도 다른 곳처럼 웅장한 가이드 테두리와 연출 스킨 보강 */}
+            <div onDragOver={(e) => e.preventDefault()} onDrop={onSkillZoneDrop} className="border-4 border-purple-900/60 bg-purple-950/10 rounded-2xl p-2 flex flex-col items-center justify-center relative min-h-[85px]">
+              <span className="absolute -top-2.5 left-3 bg-purple-700 text-white text-[8px] font-black px-1.5 py-0.2 rounded shadow">내 스킬 존 (드롭 구역)</span>
+              <div className="w-full flex-1 overflow-y-auto grid grid-cols-4 gap-1 p-0.5 max-h-[70px] mt-1.5">
+                {skillZoneCards.length === 0 && <span className="col-span-4 text-zinc-700 text-[9px] font-black text-center py-4">여기에 스킬 카드를 드롭하세요</span>}
                 {skillZoneCards.map((card, i) => (
-                  <div key={i} className="aspect-[1/1.4] w-full max-w-[35px] mx-auto border border-purple-500 rounded overflow-hidden relative shadow"><img src={card.imgUrl} className="absolute inset-0 w-full h-full object-cover" alt="" /></div>
+                  <div key={i} className="aspect-[1/1.4] w-full max-w-[35px] mx-auto border border-purple-500 rounded overflow-hidden relative shadow shadow-purple-900"><img src={card.imgUrl} className="absolute inset-0 w-full h-full object-cover" alt="" /></div>
                 ))}
               </div>
             </div>
@@ -689,7 +700,7 @@ function App() {
         {/* ⑤ 내 덱 존 & ⑥ 내 트래시 존 패널 */}
         <div className="w-full grid grid-cols-2 gap-4">
           <div onClick={() => setIsDeckSelectModalOpen(true)} className="border-2 border-zinc-800 bg-zinc-900/60 rounded-2xl p-4 flex items-center justify-center gap-4 relative cursor-pointer hover:bg-zinc-800/40 shadow-lg min-h-[100px]">
-            <span className="absolute -top-2.5 left-4 bg-blue-600 text-white text-[9px] font-black px-2 py-0.2 rounded shadow">⑤ 내 덱 존 ({myFullDeckList.length}장 남음)</span>
+            <span className="absolute -top-2.5 left-4 bg-blue-600 text-white text-[9px] font-black px-2 py-0.2 rounded shadow">내 덱 존 ({myFullDeckList.length}장 남음)</span>
             {topOfDeckCard ? (
               <div draggable onDragStart={onDeckDragStart} className="aspect-[1/1.4] h-[75px] border-2 border-amber-500 bg-zinc-950 rounded-lg overflow-hidden flex flex-col justify-between shadow-2xl cursor-grab active:cursor-grabbing relative">
                 <img src={topOfDeckCard.imgUrl} className="w-full h-[70%] object-contain bg-black" alt="" />
@@ -704,7 +715,7 @@ function App() {
           </div>
 
           <div onClick={() => setIsTrashModalOpen(true)} className="border-2 border-zinc-800 bg-zinc-900/60 rounded-2xl p-4 flex items-center justify-center gap-4 relative cursor-pointer hover:bg-zinc-800/40 shadow-lg min-h-[100px]">
-            <span className="absolute -top-2.5 left-4 bg-zinc-600 text-zinc-300 text-[9px] font-black px-2 py-0.2 rounded shadow">⑥ 트래시 존 (적 덱: {oppDeckCount}장 / 적 무덤: {oppTrashCount}장)</span>
+            <span className="absolute -top-2.5 left-4 bg-zinc-600 text-zinc-300 text-[9px] font-black px-2 py-0.2 rounded shadow">내 트래시 존 (적 덱: {oppDeckCount}장 / 적 무덤: {oppTrashCount}장)</span>
             <div className="text-center flex items-center gap-3">
               <span className="text-2xl font-black text-zinc-400">{trashDeck.length} <span className="text-xs text-zinc-600 font-bold">장 무덤 누적</span></span>
             </div>
@@ -713,7 +724,7 @@ function App() {
 
       </div>
 
-      {/* 내 덱 선택 장전 모달 */}
+      {/* 내 덱 장전 모달 */}
       {isDeckSelectModalOpen && (
         <div className="fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-50">
           <div className="bg-zinc-900 border-4 border-zinc-700 rounded-2xl w-full max-w-4xl p-6 shadow-2xl flex flex-col max-h-[600px]">
@@ -733,7 +744,7 @@ function App() {
         </div>
       )}
 
-      {/* 내 무덤 확인 모달 */}
+      {/* 내 무덤 모달 */}
       {isTrashModalOpen && (
         <div className="fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-50">
           <div className="bg-zinc-900 border-4 border-zinc-700 rounded-2xl w-full max-w-lg p-6 flex flex-col">
@@ -754,7 +765,7 @@ function App() {
         </div>
       )}
 
-      {/* 내 유닛 장착 장비 관리 모달 */}
+      {/* 내 유닛 장착 장비 확인 모달 */}
       {inspectingUnitIndex !== null && (
         <div className="fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-50">
           <div className="bg-zinc-900 border-4 border-zinc-700 rounded-2xl w-full max-w-lg p-6 flex flex-col">
@@ -772,15 +783,15 @@ function App() {
       )}
 
       {/* ====================================================
-          [피드백 3 특수 구현]: 상대방 카드 클릭 시 나타나는 대형 정찰 돋보기 모달
-          *(상대 유닛이 장착 중인 아이템 실시간 추적 렌더링 스크롤망 탑재 완료)*
+          [피드백 1 초정밀 업그레이드]: 상대방 카드 정찰 대형 돋보기 모달
+          *(상대 유닛이 장착하고 있는 장비를 클릭 시 그 카드도 즉시 확대 정찰 가동!!)*
           ==================================================== */}
       {magnifiedCard && (
         <div className="fixed inset-0 bg-black/90 flex flex-col items-center justify-center z-[100] animate-fade-in p-4">
           <div className="relative bg-zinc-900 border-4 border-zinc-700 p-6 rounded-3xl shadow-[0_0_60px_rgba(239,68,68,0.25)] max-w-full flex gap-6 items-start">
             <button onClick={() => setMagnifiedCard(null)} className="absolute -top-6 -right-6 bg-red-600 hover:bg-red-500 border-2 border-white text-white w-12 h-12 rounded-full flex items-center justify-center font-black text-2xl shadow-2xl transition-all cursor-pointer z-[110]">✕</button>
             
-            {/* 왼쪽: 확대 일러스트 기판 */}
+            {/* 왼쪽 기판: 타겟 대형 일러스트 출력 프레임 */}
             <div className="flex flex-col items-center gap-4">
               {magnifiedCard.isLeaderType ? (
                 <div className="w-[420px] aspect-[4/3] rounded-2xl border-4 border-amber-500 bg-black shadow-inner relative overflow-hidden">
@@ -799,11 +810,11 @@ function App() {
               </div>
             </div>
 
-            {/* 오른쪽: [수정사항 3 구현] 상대 유닛 장착 아이템 정찰 레이더 전용 모달 패널 */}
+            {/* 오른쪽 기판: [수정사항 1 구현]: 상대 장비 목록에서 아이템 클릭 시 돋보기 대상을 즉시 스위칭 확대! */}
             {!magnifiedCard.isLeaderType && magnifiedCard.type === 'Unit' && (
               <div className="w-[280px] bg-zinc-950/80 border border-zinc-800 rounded-2xl p-4 flex flex-col h-[460px]">
                 <h5 className="text-xs font-black text-cyan-400 border-b border-zinc-800 pb-2 mb-3 tracking-wide flex justify-between items-center">
-                  <span>🛰️ 상대방 장착 장비 실시간 정찰</span>
+                  <span>🛰️ 상대 유닛 장착 아이템 목록</span>
                   <span className="bg-cyan-950 px-2 py-0.5 rounded-full text-[10px] text-cyan-300">{magnifiedCard.items?.length || 0}개</span>
                 </h5>
                 <div className="flex-1 overflow-y-auto space-y-3 pr-1">
@@ -811,13 +822,17 @@ function App() {
                     <p className="text-[11px] text-zinc-600 text-center py-44 font-bold">현재 장착된 아이템이 없습니다.</p>
                   )}
                   {magnifiedCard.items?.map((item, sIdx) => (
-                    <div key={sIdx} className="border border-zinc-800 bg-zinc-900 rounded-xl p-2 flex items-center gap-3 shadow-md">
+                    <div 
+                      key={sIdx} 
+                      onClick={() => setMagnifiedCard(item)} // 🔥 [딸깍 터치 시 이 장비를 대형 돋보기로 전환!]
+                      className="border border-zinc-800 bg-zinc-900 rounded-xl p-2 flex items-center gap-3 shadow-md hover:border-cyan-500 cursor-pointer active:scale-95 transition-all"
+                    >
                       <div className="w-10 h-14 bg-black rounded overflow-hidden flex-shrink-0 flex items-center justify-center">
                         <img src={item.imgUrl} className="max-w-full max-h-full object-contain" alt="" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-black text-xs text-zinc-200 truncate">{item.name}</p>
-                        <p className="text-[9px] font-bold text-zinc-500 mt-0.5">[{item.ip}] Item</p>
+                        <p className="text-[9px] font-bold text-zinc-400 mt-0.5 block">🔍 클릭 시 장비 단독 확대</p>
                       </div>
                     </div>
                   ))}
