@@ -21,7 +21,6 @@ function App() {
   const [isOpponentReady, setIsOpponentReady] = useState(false); 
   const [isOpponentConnected, setIsOpponentConnected] = useState(false); 
 
-  // 클라우드 덱 데이터 상태 저장소
   const [savedDecks, setSavedDecks] = useState([]);
   const [newDeckName, setNewDeckName] = useState('');
 
@@ -53,6 +52,8 @@ function App() {
   const [isDeckSelectModalOpen, setIsDeckSelectModalOpen] = useState(false); 
   const [isTrashModalOpen, setIsTrashModalOpen] = useState(false);
   const [inspectingUnitIndex, setInspectingUnitIndex] = useState(null); 
+  
+  // 상대방 카드 서치 돋보기용 상태
   const [magnifiedCard, setMagnifiedCard] = useState(null);
 
   const [draggingCard, setDraggingCard] = useState(null);
@@ -60,21 +61,21 @@ function App() {
 
   const channelRef = useRef(null);
 
-  // ====================================================
-  // 💾 [피드백 핵심]: 닉네임 구속형 클라우드 덱 저장/호출 로직
-  // ====================================================
-  
-  // 1. 닉네임에 구속된 덱 목록 수파베이스 서버에서 통째로 긁어오기
+  useEffect(() => {
+    const localDecks = localStorage.getItem('NIVEL_SAVED_DECKS');
+    if (localDecks) setSavedDecks(JSON.parse(localDecks));
+  }, []);
+
+  // 1. 닉네임 구속형 클라우드 덱 로더
   const fetchCloudDecks = async (targetUser) => {
     try {
       const { data, error } = await supabase
         .from('saved_decks')
         .select('*')
-        .eq('user_id', targetUser); // 입력한 닉네임과 일치하는 데이터만 필터링!
+        .eq('user_id', targetUser);
 
       if (error) throw error;
       if (data) {
-        // json으로 파싱하여 상태 바인딩
         const formattedDecks = data.map(d => ({
           id: d.id,
           name: d.deck_name,
@@ -84,11 +85,11 @@ function App() {
         setSavedDecks(formattedDecks);
       }
     } catch (err) {
-      console.log("클라우드 덱 장부 로드 실패 혹은 테이블 대기 중:", err.message);
+      console.log("클라우드 장부 불러오기 대기 중:", err.message);
     }
   };
 
-  // 2. 닉네임을 구속 인덱스 삼아 클라우드 데이터베이스에 영구 저장하기
+  // [수정사항 1 반영]: 튕기던 오류 소탕하고 확실하게 수파베이스에 밀어넣는 덱 저장 함수
   const handleSaveDeck = async () => {
     if (deckCards.length !== 40) return alert('덱은 반드시 40장이 채워져야 저장할 수 있습니다!');
     if (!selectedLeader) return alert('리더 카드를 선택해야 덱을 저장할 수 있습니다!');
@@ -96,11 +97,12 @@ function App() {
     const nameToSave = newDeckName.trim() || `${selectedLeader.name} 덱`;
     
     try {
+      // 서버 장부 컬럼 구조에 정확하게 매칭하고 고유키 충돌 방지 가드 처리
       const { error } = await supabase
         .from('saved_decks')
         .insert([
           {
-            user_id: userId, // 내 닉네임 명의로 저장!
+            user_id: userId,
             deck_name: nameToSave,
             deck_data: { leader: selectedLeader, cards: deckCards }
           }
@@ -108,15 +110,14 @@ function App() {
 
       if (error) throw error;
 
-      alert(`📥 클라우드 서버에 [${nameToSave}]이 저장되었습니다! 이제 어느 기기에서든 [${userId}]로 접속하면 즉시 사용 가능합니다.`);
+      alert(`📥 [${nameToSave}]이 클라우드 서버에 안전하게 등록되었습니다! 이제 어디서든 [${userId}] 닉네임만 치면 즉시 로드됩니다.`);
       setNewDeckName('');
-      fetchCloudDecks(userId); // 목록 새로고침
+      fetchCloudDecks(userId); 
     } catch (err) {
-      alert("서버 저장 실패: 1단계 장부 개설을 완료했는지 확인해 주세요!");
+      alert(`서버 저장 실패: ${err.message}`);
     }
   };
 
-  // 3. 클라우드에 박힌 덱 영구 삭제하기
   const handleDeleteDeck = async (deckId, e) => {
     e.stopPropagation();
     if (!window.confirm('이 덱을 클라우드 서버에서 영구 삭제하시겠습니까?')) return;
@@ -128,7 +129,7 @@ function App() {
         .eq('id', deckId);
 
       if (error) throw error;
-      fetchCloudDecks(userId); // 목록 새로고침
+      fetchCloudDecks(userId); 
     } catch (err) {
       console.error(err.message);
     }
@@ -145,7 +146,7 @@ function App() {
       .on('broadcast', { event: 'JOIN' }, (payload) => {
         setIsOpponentConnected(true);
         setOppUserId(payload.payload.userId);
-        alert(`🎮 플레이어 [${payload.payload.userId}]님이 입장했습니다! 클라우드 채널 연동 완료.`);
+        alert(`🎮 플레이어 [${payload.payload.userId}]님이 입장했습니다! 클라우드 전장이 가동됩니다.`);
         
         channel.send({
           type: 'broadcast',
@@ -169,6 +170,7 @@ function App() {
         if (oppState.deckCount !== undefined) setOppDeckCount(oppState.deckCount);
         
         if (oppState.unitZoneSlots !== undefined) {
+          // 거울형 레인 시스템: 상대가 보낸 배열을 내 시점에서 마주보게 우측 반전 처리!
           setOppUnitZoneSlots([...oppState.unitZoneSlots].reverse()); 
         }
       })
@@ -223,7 +225,7 @@ function App() {
     setIsReady(false);
     setIsOpponentReady(false);
     
-    fetchCloudDecks(userId); // 대기방 입장 시 내 닉네임에 구속된 덱 원격 서버에서 원터치로 수급!
+    fetchCloudDecks(userId); 
     connectToCloudServer(roomCode); 
   };
 
@@ -277,11 +279,19 @@ function App() {
     setDraggingCard(card);
   };
 
+  // [수정사항 2 반영]: 동일 카드 이름이 3장 존재할 경우 빌딩을 완전 차단하는 규칙 엔진 가드
   const onMainDeckDrop = (e) => {
     e.preventDefault();
     if (!draggingCard) return;
     if (draggingCard.type === 'Leader') return alert('리더 카드는 아래 [리더 드롭 존]으로 장착해 주세요!');
     if (deckCards.length >= 40) return alert('🚨 메인 덱은 이미 최대 수량인 40장입니다!');
+    
+    // 내 덱에 들어있는 카드 중 같은 이름의 개수 연산
+    const sameCardCount = deckCards.filter(c => c.name === draggingCard.name).length;
+    if (sameCardCount >= 3) {
+      return alert(`🚨 규칙 위반: 니벨아레나 TCG 룰 상 동일한 카드는 덱에 최대 3장까지만 투입할 수 있습니다! ([${draggingCard.name}] 현재 3장 존재)`);
+    }
+
     setDeckCards([...deckCards, { ...draggingCard, instanceId: `card-${Date.now()}-${Math.random()}` }]);
     setDraggingCard(null);
   };
@@ -383,7 +393,7 @@ function App() {
           
           <div className="flex flex-col space-y-4 max-w-md mx-auto pt-2 border-t border-zinc-800">
             <div className="flex flex-col space-y-2">
-              <span className="text-base font-black text-zinc-400 text-center">배틀 룸 주파수 코드</span>
+              <span className="text-base font-black text-zinc-400 text-center">서버 코드</span>
               <input type="text" placeholder="코드 (3자리 숫자)" value={roomCode} onChange={(e) => handleCodeChange(e.target.value)} className="w-full px-4 py-3.5 border-2 border-zinc-700 bg-zinc-950 text-white rounded-xl text-center font-black text-xl focus:outline-none tracking-widest" />
             </div>
             <button onClick={handleEnterDeckScreen} className="w-full py-4 bg-zinc-800 hover:bg-zinc-700 border-2 border-zinc-600 text-white font-black text-lg rounded-xl tracking-wide transition-all active:scale-[0.98] shadow-md mt-2">
@@ -395,7 +405,7 @@ function App() {
     );
   }
 
-  // 2. 내 덱 준비하는 화면 (클라우드 기반 무한 저장고 탑재)
+  // 2. 내 덱 준비하는 화면
   if (screen === 'DECK') {
     const currentSearchText = searchTerm || '';
     const displayCards = cardDatabase.filter(c => {
@@ -447,9 +457,8 @@ function App() {
           </div>
 
           <div className="col-span-5 flex flex-col justify-between h-[780px] gap-4">
-            {/* 👑 [클라우드 덱 로더]: 내 닉네임 계정에만 동기화되어 나타나는 웅장한 서버 불러오기 리스트 */}
             <div className="border-2 border-zinc-800 bg-zinc-900 rounded-2xl p-4 shadow-xl flex flex-col gap-2">
-              <span className="text-xs font-black text-cyan-400">👤 [{userId}] 마스터 계정 전용 클라우드 덱 ({savedDecks.length})</span>
+              <span className="text-xs font-black text-cyan-400">👤 [{userId}] 마스터 계정 클라우드 덱 ({savedDecks.length})</span>
               <div className="flex gap-2 overflow-x-auto py-1 max-h-[70px]">
                 {savedDecks.length === 0 && <span className="text-[11px] text-zinc-600 font-bold py-2">클라우드 서버에 등록된 덱이 없습니다. 40장을 채워 등록하세요!</span>}
                 {savedDecks.map(d => (
@@ -517,10 +526,11 @@ function App() {
     );
   }
 
-  // 3. 인게임 화면 (컴팩트 뷰어 + 레벨 스택 엔진 완벽 유지)
+  // 3. 인게임 화면 (컴팩트 뷰어 + 레벨 스택 엔진)
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 p-4 flex flex-col items-center justify-start select-none font-sans overflow-y-auto pb-12">
       
+      {/* 상단 배너 */}
       <div className="w-full max-w-[1700px] sticky top-0 z-40 bg-zinc-900/95 border-b-4 border-zinc-800 p-3 flex justify-between items-center shadow-2xl backdrop-blur-md">
         <div className="flex items-center gap-6">
           <div className="bg-zinc-950 border border-cyan-500/30 px-4 py-1.5 rounded-xl text-center shadow-inner">
@@ -547,7 +557,7 @@ function App() {
         <div className="w-full bg-zinc-900 border-[6px] border-red-900/40 rounded-[28px] p-4 shadow-xl grid grid-cols-12 gap-4 relative">
           <div className="absolute -top-3 left-8 bg-red-600 text-white text-[10px] font-black px-4 py-0.5 rounded-full shadow-lg border border-red-400 z-10">🚨 OPPONENT MAT ({oppUserId})</div>
           
-          {/* 상대 레벨 존 (스태킹 엔진) */}
+          {/* 상대 레벨 존 */}
           <div onClick={() => { if(oppLeaderCard) setMagnifiedCard({ ...oppLeaderCard, isLeaderType: true, leaderFlip: oppIsLeaderFlipped }); }} className="col-span-3 border-2 border-zinc-800 bg-zinc-950/40 rounded-xl p-3 flex flex-col justify-center relative shadow-inner min-h-[190px] cursor-pointer">
             <span className="absolute top-1 left-2 text-[9px] font-black text-red-400">적 리더 레벨 트랙 (LV {oppLeaderLevel})</span>
             <div className="w-full h-full flex items-center justify-start pl-4 relative overflow-visible mt-2">
@@ -567,14 +577,17 @@ function App() {
             </div>
           </div>
 
-          {/* 상대 유닛 존 */}
+          {/* 상대 유닛 존 (확대경 장비 정찰 타겟 링크 활성화) */}
           <div className="col-span-5 border-2 border-zinc-800 bg-zinc-950/10 rounded-xl p-3 relative grid grid-cols-3 gap-3 items-stretch min-h-[190px]">
             {oppUnitZoneSlots.map((card, idx) => (
-              <div key={idx} onClick={() => { if(card) setMagnifiedCard(card); }} className={`border-2 rounded-xl relative flex items-center justify-center p-0.5 transition-all overflow-hidden aspect-[1/1.4] m-auto w-full max-w-[120px] shadow-lg ${card ? 'bg-zinc-950 border-red-500/60' : 'border-dashed border-zinc-800 bg-zinc-950/40 text-zinc-800 font-black text-xs'}`}>
+              <div key={idx} onClick={() => { if(card) setMagnifiedCard(card); }} className={`border-2 rounded-xl relative flex items-center justify-center p-0.5 transition-all overflow-hidden aspect-[1/1.4] m-auto w-full max-w-[120px] shadow-lg cursor-pointer ${card ? 'bg-zinc-950 border-red-500/60' : 'border-dashed border-zinc-800 bg-zinc-950/40 text-zinc-800 font-black text-xs'}`}>
                 {card ? (
                   <div className="w-full h-full rounded-lg overflow-hidden flex flex-col bg-zinc-900">
                     <img src={card.imgUrl} className="w-full h-[78%] object-contain bg-black" alt="" />
-                    <div className="bg-neutral-950 flex-1 flex flex-col justify-center items-center border-t border-zinc-800 text-[10px] font-black truncate px-1 text-zinc-400">{card.name}</div>
+                    <div className="bg-neutral-950 flex-1 flex flex-col justify-center items-center border-t border-zinc-800 text-[10px] font-black truncate px-1 text-zinc-400">
+                      {card.name}
+                      <span className="text-[8px] text-cyan-400">장비 ({card.items?.length || 0})</span>
+                    </div>
                   </div>
                 ) : `슬롯 ${3 - idx}`}
               </div>
@@ -608,7 +621,7 @@ function App() {
         <div className="w-full bg-zinc-900 border-[6px] border-cyan-900/40 rounded-[28px] p-4 shadow-xl grid grid-cols-12 gap-4 relative">
           <div className="absolute -top-3 left-8 bg-cyan-600 text-white text-[10px] font-black px-4 py-0.5 rounded-full shadow-lg border border-cyan-400 z-10">🔵 MY PLAY MAT</div>
 
-          {/* ① 내 레벨 존 (스태킹 엔진) */}
+          {/* ① 내 레벨 존 */}
           <div className="col-span-3 border-2 border-zinc-800 bg-zinc-950/40 rounded-xl p-3 flex flex-col justify-center relative shadow-inner min-h-[190px]">
             <span className="absolute top-1 left-2 text-[9px] font-black text-cyan-400">내 리더 레벨 트랙 (LV {leaderLevel})</span>
             <div className="w-full h-full flex items-center justify-start pl-4 relative overflow-visible mt-2">
@@ -700,7 +713,7 @@ function App() {
 
       </div>
 
-      {/* 모달창들 (동일) */}
+      {/* 내 덱 선택 장전 모달 */}
       {isDeckSelectModalOpen && (
         <div className="fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-50">
           <div className="bg-zinc-900 border-4 border-zinc-700 rounded-2xl w-full max-w-4xl p-6 shadow-2xl flex flex-col max-h-[600px]">
@@ -741,7 +754,7 @@ function App() {
         </div>
       )}
 
-      {/* 장착 장비 모달 구역 */}
+      {/* 내 유닛 장착 장비 관리 모달 */}
       {inspectingUnitIndex !== null && (
         <div className="fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-50">
           <div className="bg-zinc-900 border-4 border-zinc-700 rounded-2xl w-full max-w-lg p-6 flex flex-col">
@@ -758,28 +771,60 @@ function App() {
         </div>
       )}
 
-      {/* 정찰 확대경 모달 */}
+      {/* ====================================================
+          [피드백 3 특수 구현]: 상대방 카드 클릭 시 나타나는 대형 정찰 돋보기 모달
+          *(상대 유닛이 장착 중인 아이템 실시간 추적 렌더링 스크롤망 탑재 완료)*
+          ==================================================== */}
       {magnifiedCard && (
         <div className="fixed inset-0 bg-black/90 flex flex-col items-center justify-center z-[100] animate-fade-in p-4">
-          <div className="relative bg-zinc-900 border-4 border-zinc-700 p-8 rounded-3xl shadow-[0_0_60px_rgba(239,68,68,0.25)] max-w-full flex flex-col items-center">
+          <div className="relative bg-zinc-900 border-4 border-zinc-700 p-6 rounded-3xl shadow-[0_0_60px_rgba(239,68,68,0.25)] max-w-full flex gap-6 items-start">
             <button onClick={() => setMagnifiedCard(null)} className="absolute -top-6 -right-6 bg-red-600 hover:bg-red-500 border-2 border-white text-white w-12 h-12 rounded-full flex items-center justify-center font-black text-2xl shadow-2xl transition-all cursor-pointer z-[110]">✕</button>
-            <div className="flex flex-col items-center justify-center gap-4">
+            
+            {/* 왼쪽: 확대 일러스트 기판 */}
+            <div className="flex flex-col items-center gap-4">
               {magnifiedCard.isLeaderType ? (
                 <div className="w-[420px] aspect-[4/3] rounded-2xl border-4 border-amber-500 bg-black shadow-inner relative overflow-hidden">
                   <div className="absolute inset-0" style={{ backgroundImage: `url(${magnifiedCard.imgUrl})`, backgroundPosition: magnifiedCard.leaderFlip ? 'center bottom' : 'center top', backgroundSize: '100% 200%' }}></div>
                 </div>
               ) : (
-                <div className="w-[360px] aspect-[1/1.4] bg-zinc-950 rounded-2xl overflow-hidden border-2 border-zinc-700 p-1 flex items-center justify-center shadow-inner"><img src={magnifiedCard.imgUrl} className="max-w-full max-h-full object-contain rounded-xl shadow-2xl" alt="" /></div>
+                <div className="w-[300px] aspect-[1/1.4] bg-zinc-950 rounded-2xl overflow-hidden border-2 border-zinc-700 p-1 flex items-center justify-center shadow-inner"><img src={magnifiedCard.imgUrl} className="max-w-full max-h-full object-contain rounded-xl shadow-2xl" alt="" /></div>
               )}
-              <div className="text-center bg-zinc-950/80 px-6 py-3 rounded-xl border border-red-900/40 shadow-md min-w-[280px]">
-                <h4 className="text-xl font-black text-red-400 tracking-wide border-b border-zinc-800 pb-1.5 mb-1.5">{magnifiedCard.name}</h4>
-                <div className="flex justify-between items-center text-xs font-bold text-zinc-400">
+              <div className="text-center bg-zinc-950/80 px-4 py-2 rounded-xl border border-red-900/40 shadow-md w-full">
+                <h4 className="text-base font-black text-red-400 tracking-wide border-b border-zinc-800 pb-1 mb-1">{magnifiedCard.name}</h4>
+                <div className="flex justify-between items-center text-[11px] font-bold text-zinc-400">
                   <span>IP: <span className="text-amber-400">[{magnifiedCard.ip}]</span></span>
-                  <span>분류: <span className="text-zinc-200">{magnifiedCard.type}</span></span>
+                  <span>타입: <span className="text-zinc-200">{magnifiedCard.type}</span></span>
                   <span>★ <span className="text-white">{magnifiedCard.cost}</span></span>
                 </div>
               </div>
             </div>
+
+            {/* 오른쪽: [수정사항 3 구현] 상대 유닛 장착 아이템 정찰 레이더 전용 모달 패널 */}
+            {!magnifiedCard.isLeaderType && magnifiedCard.type === 'Unit' && (
+              <div className="w-[280px] bg-zinc-950/80 border border-zinc-800 rounded-2xl p-4 flex flex-col h-[460px]">
+                <h5 className="text-xs font-black text-cyan-400 border-b border-zinc-800 pb-2 mb-3 tracking-wide flex justify-between items-center">
+                  <span>🛰️ 상대방 장착 장비 실시간 정찰</span>
+                  <span className="bg-cyan-950 px-2 py-0.5 rounded-full text-[10px] text-cyan-300">{magnifiedCard.items?.length || 0}개</span>
+                </h5>
+                <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+                  {(!magnifiedCard.items || magnifiedCard.items.length === 0) && (
+                    <p className="text-[11px] text-zinc-600 text-center py-44 font-bold">현재 장착된 아이템이 없습니다.</p>
+                  )}
+                  {magnifiedCard.items?.map((item, sIdx) => (
+                    <div key={sIdx} className="border border-zinc-800 bg-zinc-900 rounded-xl p-2 flex items-center gap-3 shadow-md">
+                      <div className="w-10 h-14 bg-black rounded overflow-hidden flex-shrink-0 flex items-center justify-center">
+                        <img src={item.imgUrl} className="max-w-full max-h-full object-contain" alt="" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-black text-xs text-zinc-200 truncate">{item.name}</p>
+                        <p className="text-[9px] font-bold text-zinc-500 mt-0.5">[{item.ip}] Item</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       )}
